@@ -16,6 +16,7 @@
     "@mantine/notifications": "^7.17.3",
     "chart.js": "^4.4.8",
     "ethers": "^6.13.5",
+    "firebase": "^11.6.0",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "leaflet": "^1.9.4",
