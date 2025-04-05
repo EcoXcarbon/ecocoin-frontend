@@ -11,6 +11,9 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@mantine/core": "^7.17.3",
+    "@mantine/hooks": "^7.17.3",
+    "@mantine/notifications": "^7.17.3",
     "chart.js": "^4.4.8",
     "ethers": "^6.13.5",
     "jspdf": "^3.0.1",
