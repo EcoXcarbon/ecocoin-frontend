@@ -1,159 +1,99 @@
 import React, { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import EcoStaker from "../artifacts/contracts/EcoStaker.sol/EcoStaker.json";
-import EcoCoin from "../artifacts/contracts/EcoCoin.sol/EcoCoin.json";
+import EcoCoin from "../abi/EcoCoin.json";
+import EcoStaker from "../abi/EcoStaker.json";
 
-const STAKER_ADDRESS = "0x4A679253410272dd5232B3Ff7cF5dbB88f295319";
+const EcoCoinABI = EcoCoin.abi;
+const StakerABI = EcoStaker.abi;
 
-const Staking = ({ provider, signer, address }) => {
-  const [amount, setAmount] = useState(0);
+const TOKEN_ADDRESS = import.meta.env.VITE_ECOCOIN_ADDRESS;
+const STAKER_ADDRESS = import.meta.env.VITE_STAKER_ADDRESS;
+
+function Staking({ signer, address }) {
+  const [balance, setBalance] = useState("0");
+  const [staked, setStaked] = useState("0");
   const [status, setStatus] = useState("");
-  const [balance, setBalance] = useState(0);
-  const [staked, setStaked] = useState(0);
-  const [timestamp, setTimestamp] = useState(0);
-  const [reward, setReward] = useState(0);
-  const [poolTotal, setPoolTotal] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [canClaim, setCanClaim] = useState(false);
 
-  const stakerContract = new ethers.Contract(STAKER_ADDRESS, EcoStaker.abi, signer);
-  const [ecoContract, setEcoContract] = useState(null);
+  const loadBalances = async () => {
+    try {
+      const token = new ethers.Contract(TOKEN_ADDRESS, EcoCoinABI, signer);
+      const staker = new ethers.Contract(STAKER_ADDRESS, StakerABI, signer);
 
-  useEffect(() => {
-    const setupContracts = async () => {
-      const tokenAddr = await stakerContract.ecoToken();
-      const eco = new ethers.Contract(tokenAddr, EcoCoin.abi, signer);
-      setEcoContract(eco);
-    };
-    if (signer) setupContracts();
-  }, [signer]);
+      const rawBalance = await token.balanceOf(address);
+      const [rawStaked] = await staker.getStakeInfo(address); // ✅ Correct ABI usage
 
-  const fetchStakeInfo = async () => {
-    if (!ecoContract) return;
-    const [userBal, [userStaked, stakeTime]] = await Promise.all([
-      ecoContract.balanceOf(address),
-      stakerContract.getStakeInfo(address),
-    ]);
-
-    const total = await ecoContract.balanceOf(STAKER_ADDRESS);
-    setBalance(parseFloat(ethers.formatUnits(userBal, 18)));
-    setStaked(parseFloat(ethers.formatUnits(userStaked, 18)));
-    setTimestamp(Number(stakeTime));
-    setPoolTotal(parseFloat(ethers.formatUnits(total, 18)));
-
-    const timePassed = Date.now() / 1000 - Number(stakeTime);
-    const hasReward = timePassed >= 15 * 86400;
-    setCanClaim(hasReward);
-    setTimeRemaining(Math.max(0, 15 * 86400 - timePassed));
-    const rewardCalc = hasReward ? (userStaked * 7) / 100 : 0;
-    setReward(parseFloat(ethers.formatUnits(rewardCalc.toString(), 18)));
+      setBalance(ethers.formatUnits(rawBalance, 18));
+      setStaked(ethers.formatUnits(rawStaked, 18));
+    } catch (err) {
+      console.error("❌ Failed to load balances:", err);
+    }
   };
 
-  const stake = async () => {
+  const handleStake = async () => {
     try {
-      setStatus("Staking...");
-      const amt = ethers.parseUnits(amount.toString(), 18);
-      const tx1 = await ecoContract.approve(STAKER_ADDRESS, amt);
+      setStatus("⏳ Approving & staking...");
+      const token = new ethers.Contract(TOKEN_ADDRESS, EcoCoinABI, signer);
+      const staker = new ethers.Contract(STAKER_ADDRESS, StakerABI, signer);
+
+      const amount = ethers.parseUnits("50", 18);
+      const tx1 = await token.approve(STAKER_ADDRESS, amount);
       await tx1.wait();
-      const tx2 = await stakerContract.stake(amt);
+
+      const tx2 = await staker.stake(amount);
       await tx2.wait();
-      setStatus("Staked successfully!");
-      fetchStakeInfo();
+
+      setStatus("✅ Staked 50 ECO!");
+      loadBalances();
     } catch (err) {
-      console.error(err);
-      setStatus("Stake failed");
+      console.error("❌ Staking failed:", err);
+      setStatus("❌ Staking failed");
     }
   };
 
-  const unstake = async () => {
+  const handleUnstake = async () => {
     try {
-      setStatus("Unstaking...");
-      const tx = await stakerContract.unstake();
+      setStatus("⏳ Unstaking...");
+      const staker = new ethers.Contract(STAKER_ADDRESS, StakerABI, signer);
+      const tx = await staker.unstake();
       await tx.wait();
-      setStatus("Unstaked successfully!");
-      fetchStakeInfo();
-    } catch (err) {
-      console.error(err);
-      setStatus("Unstake failed");
-    }
-  };
 
-  const claim = async () => {
-    try {
-      if (!canClaim) return;
-      setStatus("Claiming...");
-      const tx = await stakerContract.unstake();
-      await tx.wait();
-      setStatus("Claim successful!");
-      fetchStakeInfo();
+      setStatus("✅ Unstaked successfully!");
+      loadBalances();
     } catch (err) {
-      console.error(err);
-      setStatus("Claim failed");
+      console.error("❌ Unstaking failed:", err);
+      setStatus("❌ Unstaking failed");
     }
   };
 
   useEffect(() => {
-    if (provider && signer && address && ecoContract) {
-      fetchStakeInfo();
+    if (signer && address) {
+      loadBalances();
     }
-  }, [provider, signer, address, ecoContract]);
-
-  const formatTime = (seconds) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    return `${h}h ${m}m ${s}s`;
-  };
+  }, [signer, address]);
 
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-md w-full max-w-md mx-auto mt-6">
-      <h2 className="text-2xl font-bold text-green-700 mb-4">🌿 Stake ECO</h2>
+    <div className="bg-white p-6 rounded-2xl shadow-md max-w-md mx-auto">
+      <h2 className="text-xl font-bold text-green-700 mb-2">🌳 Staking Panel</h2>
+      <p className="mb-2 text-gray-700">Your ECO Balance: {balance}</p>
+      <p className="mb-4 text-gray-700">Staked: {staked}</p>
 
-      <p className="mb-1">Available Balance: <strong>{balance} ECO</strong></p>
-      <p className="mb-1">Your Staked: <strong>{staked} ECO</strong></p>
-      <p className="mb-1">Earned Rewards: <strong>{reward} ECO</strong></p>
-      <p className="mb-1">Total in Pool: <strong>{poolTotal} ECO</strong></p>
-      {!canClaim && staked > 0 && (
-        <p className="mb-4 text-sm text-gray-500">Reward in: {formatTime(timeRemaining)}</p>
-      )}
-
-      <input
-        type="number"
-        placeholder="Enter amount to stake"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        className="w-full px-4 py-2 border rounded-lg mb-4"
-      />
-
-      <div className="flex justify-between">
+      <div className="flex gap-4 justify-center">
         <button
-          onClick={stake}
-          className="bg-green-400 hover:bg-green-500 text-white px-6 py-2 rounded-xl font-semibold"
+          onClick={handleStake}
+          className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded-xl shadow"
         >
-          🌱 Stake
+          ➕ Stake 50 ECO
         </button>
-
         <button
-          onClick={unstake}
-          className="bg-yellow-400 hover:bg-yellow-500 text-white px-6 py-2 rounded-xl font-semibold"
+          onClick={handleUnstake}
+          className="bg-gray-500 hover:bg-gray-600 text-white font-semibold px-4 py-2 rounded-xl shadow"
         >
-          🔓 Unstake
-        </button>
-
-        <button
-          onClick={claim}
-          disabled={!canClaim}
-          className={`${
-            canClaim ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-300 cursor-not-allowed"
-          } text-white px-6 py-2 rounded-xl font-semibold`}
-        >
-          🎁 Claim
+          ♻️ Unstake
         </button>
       </div>
-
-      {status && <p className="mt-4">✅ {status}</p>}
+      {status && <p className="mt-3 text-sm text-gray-600">{status}</p>}
     </div>
   );
-};
+}
 
 export default Staking;

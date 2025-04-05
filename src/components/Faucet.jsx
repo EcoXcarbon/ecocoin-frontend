@@ -1,58 +1,129 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ethers } from "ethers";
-import EcoFaucet from "../artifacts/contracts/EcoFaucet.sol/EcoFaucet.json";
-const FAUCET_ADDRESS = "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c";; // update if changed
+import EcoFaucet from "../abi/EcoFaucet.json";
+import questions from "../questions";
 
-const Faucet = ({ provider, signer }) => {
-  const [status, setStatus] = useState("");
-  const [isClaiming, setIsClaiming] = useState(false);
+const FAUCET_ADDRESS = import.meta.env.VITE_FAUCET_ADDRESS;
 
-  const handleClaim = async () => {
-    if (!signer || !provider) {
-      setStatus("❌ Wallet not connected.");
-      return;
+function Faucet({ signer, address, setScore, setRank, setActiveTab }) {
+  const [contract, setContract] = useState(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [quizEnded, setQuizEnded] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [answers, setAnswers] = useState([]);
+  const [finalScore, setFinalScore] = useState(0);
+  const [finalRank, setFinalRank] = useState(null);
+
+  // Init contract
+  useEffect(() => {
+    if (signer) {
+      const instance = new ethers.Contract(FAUCET_ADDRESS, EcoFaucet.abi, signer);
+      setContract(instance);
     }
+  }, [signer]);
 
-    try {
-      setIsClaiming(true);
-      setStatus("⏳ Claiming tokens...");
+  const currentQuestion = questions[currentQuestionIndex];
 
-      const faucet = new ethers.Contract(FAUCET_ADDRESS, EcoFaucet.abi, signer);
-      const tx = await faucet.claim();
+  const handleOptionSelect = (option) => {
+    setSelectedOption(option);
+  };
 
-      console.log("📨 Tx sent:", tx.hash);
-      setStatus("⏳ Waiting for confirmation...");
+  const handleNext = () => {
+    const correct = selectedOption === currentQuestion.answer;
+    const newAnswers = [...answers, correct];
+    setAnswers(newAnswers);
+    setSelectedOption(null);
 
-      await provider.waitForTransaction(tx.hash);
-      setStatus("✅ Claim successful! 50 ECO sent.");
-    } catch (err) {
-      console.error("❌ Claim error:", err);
-      if (err.message.includes("already claimed")) {
-        setStatus("❌ Already claimed from this wallet.");
-      } else {
-        setStatus("❌ Claim failed. See console.");
-      }
-    } finally {
-      setIsClaiming(false);
+    if (currentQuestionIndex < 4) {
+      setCurrentQuestionIndex((prev) => prev + 1);
+    } else {
+      const score = newAnswers.filter(Boolean).length * 10;
+      const rank = Math.floor(Math.random() * 100) + 1;
+
+      setFinalScore(score);
+      setFinalRank(rank);
+      setScore(score);
+      setRank(rank);
+      setQuizEnded(true);
     }
   };
 
+  const handleReset = () => {
+    setCurrentQuestionIndex(0);
+    setSelectedOption(null);
+    setAnswers([]);
+    setQuizEnded(false);
+    setHasSubmitted(false);
+    setFinalScore(0);
+    setFinalRank(null);
+  };
+
+  const handleSubmitScore = () => {
+    alert("✅ Score submitted for reward distribution.");
+    setHasSubmitted(true);
+    setTimeout(() => setActiveTab(""), 1500); // Return to tab panel
+  };
+
   return (
-    <div className="p-6 bg-white rounded-2xl shadow-xl max-w-md mx-auto mt-10 text-center">
-      <h2 className="text-2xl font-bold text-green-700 mb-2">🌱 EcoCoin Faucet</h2>
-      <p className="mb-4 text-gray-600">Claim 50 test ECO tokens to your MetaMask wallet.</p>
-      <button
-        onClick={handleClaim}
-        disabled={isClaiming}
-        className={`bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-xl transition-all ${
-          isClaiming ? "opacity-60 cursor-not-allowed" : ""
-        }`}
-      >
-        💧 {isClaiming ? "Claiming..." : "Claim 50 ECO"}
-      </button>
-      {status && <p className="mt-4 text-sm text-gray-800">{status}</p>}
+    <div className="bg-white p-6 rounded-2xl shadow-md">
+      <h2 className="text-2xl font-bold text-green-800 mb-4 flex items-center">
+        🌿 EcoCoin Awareness Quiz
+      </h2>
+
+      {quizEnded ? (
+        <>
+          <p className="text-xl mt-2 mb-4">🌱 <strong>Your Score:</strong> {finalScore} / 50</p>
+          <p className="text-lg mb-6">🔢 <strong>Rank:</strong> #{finalRank} among quiz users.</p>
+
+          {!hasSubmitted && (
+            <button
+              onClick={handleSubmitScore}
+              className="bg-green-700 hover:bg-green-800 text-white font-bold px-6 py-3 rounded-xl"
+            >
+              📤 Submit Your Score for ECO Rewards
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="font-medium text-lg mb-4">{currentQuestion.question}</p>
+          <div className="space-y-2 mb-6">
+            {currentQuestion.options.map((opt, idx) => (
+              <label key={idx} className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  name="option"
+                  value={opt}
+                  checked={selectedOption === opt}
+                  onChange={() => handleOptionSelect(opt)}
+                  className="form-radio h-4 w-4 text-green-600"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-4 justify-center mt-4">
+            <button
+              onClick={handleNext}
+              disabled={!selectedOption}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl"
+            >
+              {currentQuestionIndex < 4 ? "Next" : "Submit Quiz"}
+            </button>
+
+            <button
+              onClick={handleReset}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl"
+            >
+              📂 Reset Today’s Quiz
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
-};
+}
 
 export default Faucet;
